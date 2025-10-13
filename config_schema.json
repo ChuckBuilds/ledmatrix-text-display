@@ -4,12 +4,12 @@
   "properties": {
     "enabled": {
       "type": "boolean",
-      "default": true,
+      "default": false,
       "description": "Enable or disable the text display plugin"
     },
     "text": {
       "type": "string",
-      "default": "Hello, World!",
+      "default": "Subscribe to ChuckBuilds",
       "description": "The text message to display"
     },
     "font_path": {
@@ -71,6 +71,37 @@
       "default": 10,
       "minimum": 1,
       "description": "How long to display in seconds (for non-scrolling or one complete scroll)"
+    },
+    "scroll_pixels_per_second": {
+      "type": "number",
+      "default": 30.0,
+      "minimum": 1.0,
+      "maximum": 100.0,
+      "description": "Scroll speed in pixels per second"
+    },
+    "scroll_target_fps": {
+      "type": "number",
+      "default": 100.0,
+      "minimum": 30.0,
+      "maximum": 200.0,
+      "description": "Target FPS for scrolling"
+    },
+    "scroll_mode": {
+      "type": "string",
+      "enum": ["one_shot", "continuous"],
+      "default": "one_shot",
+      "description": "Scrolling mode"
+    },
+    "scroll_direction": {
+      "type": "string",
+      "enum": ["left", "right"],
+      "default": "left",
+      "description": "Scroll direction"
+    },
+    "enable_scroll_metrics": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable scroll performance metrics"
     }
   },
   "required": ["enabled", "text"]
