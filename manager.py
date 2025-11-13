@@ -337,6 +337,51 @@ class TextDisplayPlugin(BasePlugin):
         
         return True
     
+    def on_config_change(self, new_config: Dict[str, Any]) -> None:
+        """Handle configuration changes at runtime."""
+        super().on_config_change(new_config)
+        
+        # Update text if changed
+        new_text = new_config.get('text', self.text)
+        if new_text != self.text:
+            self.set_text(new_text)
+        
+        # Update scroll settings
+        old_scroll_enabled = self.scroll_enabled
+        self.scroll_enabled = new_config.get('scroll', self.scroll_enabled)
+        self.scroll_speed = new_config.get('scroll_speed', self.scroll_speed)
+        self.scroll_gap_width = new_config.get('scroll_gap_width', self.scroll_gap_width)
+        
+        # Reset scroll position if scroll was toggled
+        if old_scroll_enabled != self.scroll_enabled:
+            self.scroll_pos = 0.0
+            self.text_image_cache = None  # Invalidate cache when scroll state changes
+            self.logger.info(f"Scroll {'enabled' if self.scroll_enabled else 'disabled'}")
+        
+        # Update font settings if changed
+        new_font_path = new_config.get('font_path', self.font_path)
+        new_font_size = new_config.get('font_size', self.font_size)
+        if new_font_path != self.font_path or new_font_size != self.font_size:
+            self.font_path = new_font_path
+            self.font_size = new_font_size
+            self.font = self._load_font()
+            self._calculate_text_dimensions()
+            self.text_image_cache = None  # Invalidate cache when font changes
+            self._register_fonts()
+        
+        # Update colors if changed
+        try:
+            text_color_raw = new_config.get('text_color')
+            if text_color_raw:
+                self.text_color = tuple(int(c) for c in text_color_raw)
+            
+            bg_color_raw = new_config.get('background_color')
+            if bg_color_raw:
+                self.bg_color = tuple(int(c) for c in bg_color_raw)
+                self.text_image_cache = None  # Invalidate cache when background color changes
+        except (ValueError, TypeError) as e:
+            self.logger.warning(f"Invalid color values in config update: {e}")
+    
     def get_info(self) -> Dict[str, Any]:
         """Return plugin info for web UI."""
         info = super().get_info()
