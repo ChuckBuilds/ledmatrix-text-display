@@ -97,11 +97,30 @@ class TextDisplayPlugin(BasePlugin):
         """Load the specified font file (TTF or BDF)."""
         font_path = self.font_path
         
-        # Resolve relative paths
+        # Resolve relative paths to project root
         if not os.path.isabs(font_path):
-            # Try relative to project root
+            # Try multiple resolution strategies
+            resolved_path = None
+            
+            # Strategy 1: Try as-is (if running from project root)
             if os.path.exists(font_path):
-                pass
+                resolved_path = font_path
+            else:
+                # Strategy 2: Try relative to current working directory (project root)
+                cwd_path = os.path.join(os.getcwd(), font_path)
+                if os.path.exists(cwd_path):
+                    resolved_path = cwd_path
+                else:
+                    # Strategy 3: Try relative to plugin directory's parent (project root)
+                    # Get the plugin directory (assuming we're in plugins/text-display/)
+                    plugin_dir = Path(__file__).parent
+                    project_root = plugin_dir.parent.parent
+                    project_path = project_root / font_path
+                    if project_path.exists():
+                        resolved_path = str(project_path)
+            
+            if resolved_path:
+                font_path = resolved_path
             else:
                 self.logger.warning(f"Font file not found: {font_path}, using default")
                 return ImageFont.load_default()
