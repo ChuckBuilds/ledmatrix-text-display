@@ -54,8 +54,17 @@ class TextDisplayPlugin(BasePlugin):
         self.scroll_enabled = config.get('scroll', True)
         self.scroll_speed = config.get('scroll_speed', 30)
         self.scroll_gap_width = config.get('scroll_gap_width', 32)
-        self.text_color = tuple(config.get('text_color', [255, 255, 255]))
-        self.bg_color = tuple(config.get('background_color', [0, 0, 0]))
+        # Convert colors to integers to handle string values from JSON config
+        try:
+            text_color_raw = config.get('text_color', [255, 255, 255])
+            bg_color_raw = config.get('background_color', [0, 0, 0])
+            self.text_color = tuple(int(c) for c in text_color_raw)
+            self.bg_color = tuple(int(c) for c in bg_color_raw)
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Invalid color values in config: {e}")
+            # Use defaults if conversion fails
+            self.text_color = (255, 255, 255)
+            self.bg_color = (0, 0, 0)
         
         # State
         self.font = self._load_font()
@@ -316,8 +325,14 @@ class TextDisplayPlugin(BasePlugin):
             if not isinstance(color_value, tuple) or len(color_value) != 3:
                 self.logger.error(f"Invalid {color_name}: must be RGB tuple")
                 return False
-            if not all(0 <= c <= 255 for c in color_value):
-                self.logger.error(f"Invalid {color_name}: values must be 0-255")
+            try:
+                # Convert to integers and validate range
+                color_ints = [int(c) for c in color_value]
+                if not all(0 <= c <= 255 for c in color_ints):
+                    self.logger.error(f"Invalid {color_name}: values must be 0-255")
+                    return False
+            except (ValueError, TypeError):
+                self.logger.error(f"Invalid {color_name}: values must be numeric")
                 return False
         
         return True
