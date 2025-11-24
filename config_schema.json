@@ -1,5 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Text Display Plugin Configuration",
+  "description": "Configuration schema for the Text Display plugin - displays custom scrolling or static text messages",
   "type": "object",
   "properties": {
     "enabled": {
@@ -7,15 +9,63 @@
       "default": false,
       "description": "Enable or disable the text display plugin"
     },
+    "display_duration": {
+      "type": "number",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 300,
+      "description": "How long to display the text in seconds (for non-scrolling or one complete scroll cycle)"
+    },
+    "live_priority": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable live priority takeover when plugin has live content"
+    },
+    "high_performance_transitions": {
+      "type": "boolean",
+      "default": false,
+      "description": "Use high-performance transitions (120 FPS) instead of standard (30 FPS)"
+    },
+    "update_interval": {
+      "type": "integer",
+      "default": 60,
+      "minimum": 1,
+      "description": "How often to refresh the text display in seconds"
+    },
+    "transition": {
+      "type": "object",
+      "description": "Transition configuration for this plugin",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["redraw", "fade", "slide", "wipe", "dissolve", "pixelate"],
+          "default": "redraw",
+          "description": "Type of transition to use"
+        },
+        "speed": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Transition speed (1=slow, 10=fast)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable transitions"
+        }
+      },
+      "additionalProperties": false
+    },
     "text": {
       "type": "string",
       "default": "Subscribe to ChuckBuilds",
-      "description": "The text message to display"
+      "description": "The text message to display on the LED matrix"
     },
     "font_path": {
       "type": "string",
       "default": "assets/fonts/PressStart2P-Regular.ttf",
-      "description": "Path to font file (TTF or BDF)"
+      "description": "Path to font file (TTF or BDF format). Relative to project root or absolute path."
     },
     "font_size": {
       "type": "number",
@@ -27,20 +77,20 @@
     "scroll": {
       "type": "boolean",
       "default": true,
-      "description": "Enable scrolling animation for text"
+      "description": "Enable scrolling animation for text. If false, text is displayed statically."
     },
     "scroll_speed": {
       "type": "number",
       "default": 30,
       "minimum": 1,
       "maximum": 200,
-      "description": "Scroll speed in pixels per second"
+      "description": "Scroll speed in pixels per second. Higher values = faster scrolling."
     },
     "scroll_gap_width": {
       "type": "number",
       "default": 32,
       "minimum": 0,
-      "description": "Gap width in pixels between scroll loops"
+      "description": "Gap width in pixels between scroll loops (space between end and start of text when looping)"
     },
     "text_color": {
       "type": "array",
@@ -65,14 +115,8 @@
       "maxItems": 3,
       "default": [0, 0, 0],
       "description": "RGB background color [R, G, B]"
-    },
-    "display_duration": {
-      "type": "number",
-      "default": 10,
-      "minimum": 1,
-      "description": "How long to display in seconds (for non-scrolling or one complete scroll)"
     }
   },
-  "required": ["enabled", "text"]
+  "required": ["enabled", "text"],
+  "additionalProperties": false
 }
-
