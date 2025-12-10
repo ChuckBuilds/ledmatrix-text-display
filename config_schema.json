@@ -51,10 +51,24 @@
     },
     "scroll_speed": {
       "type": "number",
-      "default": 30,
+      "default": 1,
       "minimum": 0.1,
-      "maximum": 500,
-      "description": "Scroll speed in pixels per second. Higher values = faster scrolling. Supports decimal values for fine control (e.g., 15.5)."
+      "maximum": 10,
+      "description": "Scroll speed in pixels per frame. Higher values = faster scrolling. Typical range: 1-2 pixels/frame for smooth scrolling. Works with scroll_delay to control actual speed."
+    },
+    "scroll_delay": {
+      "type": "number",
+      "default": 0.01,
+      "minimum": 0.001,
+      "maximum": 0.1,
+      "description": "Delay in seconds per frame. Lower values = higher FPS = smoother scrolling. Default 0.01 = 100 FPS. For 120 FPS use 0.0083, for 240 FPS use 0.0042."
+    },
+    "target_fps": {
+      "type": "number",
+      "default": 120,
+      "minimum": 30,
+      "maximum": 240,
+      "description": "Target frames per second for scrolling. Higher FPS = smoother scrolling. Recommended: 120-240 for smooth scrolling. Lower values may cause pixel skipping."
     },
     "scroll_loop": {
       "type": "boolean",

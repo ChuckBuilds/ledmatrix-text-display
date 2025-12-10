@@ -15,7 +15,6 @@ API Version: 1.0.0
 """
 
 import logging
-import time
 import os
 from typing import Dict, Any
 from PIL import Image, ImageDraw, ImageFont
@@ -53,7 +52,10 @@ class TextDisplayPlugin(BasePlugin):
         self.font_path = config.get('font_path', 'assets/fonts/PressStart2P-Regular.ttf')
         self.font_size = config.get('font_size', 8)
         self.scroll_enabled = config.get('scroll', True)
-        self.scroll_speed = float(config.get('scroll_speed', 30))
+        # Frame-based scrolling: pixels per frame
+        self.scroll_speed = float(config.get('scroll_speed', 1))  # pixels per frame (like stock/leaderboard)
+        self.scroll_delay = float(config.get('scroll_delay', 0.01))  # seconds per frame (default 0.01 = 100 FPS)
+        self.target_fps = float(config.get('target_fps', 120))  # target FPS for smooth scrolling
         self.scroll_loop = config.get('scroll_loop', True)  # Default to looping for backward compatibility
         self.scroll_gap_width = config.get('scroll_gap_width', 32)
         # Convert colors to integers to handle string values from JSON config
@@ -82,13 +84,18 @@ class TextDisplayPlugin(BasePlugin):
         self.scroll_helper = ScrollHelper(display_width, display_height, logger=self.logger)
         
         # Configure ScrollHelper with plugin settings
-        # scroll_speed is pixels per second (supports decimal values for fine control)
-        self.scroll_helper.set_scroll_speed(self.scroll_speed)
-        self.scroll_helper.set_scroll_delay(0.001)  # Minimal delay for high FPS
-        # Use higher FPS for smoother scrolling, especially at lower speeds
-        # Higher FPS = more frequent position updates = smoother scrolling
-        target_fps = 120 if self.scroll_speed >= 10 else 240  # Even higher FPS for slow speeds
+        # Convert frame-based (pixels/frame + delay) to time-based (pixels/second) for ScrollHelper
+        # pixels_per_second = pixels_per_frame / seconds_per_frame
+        pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+        self.scroll_helper.set_scroll_speed(pixels_per_second)
+        self.scroll_helper.set_scroll_delay(self.scroll_delay)
+        # Set target FPS from config (clamp to valid range)
+        target_fps = max(30.0, min(240.0, self.target_fps))
         self.scroll_helper.set_target_fps(target_fps)
+        # Enable sub-pixel scrolling for smooth movement at any speed (prevents pixel skipping)
+        self.scroll_helper.set_sub_pixel_scrolling(True)
+        
+        self.logger.info(f"Scroll settings: {self.scroll_speed} px/frame, {self.scroll_delay}s delay = {pixels_per_second:.1f} px/s, target FPS: {target_fps}")
         self.scroll_helper.set_dynamic_duration_settings(
             enabled=True,
             min_duration=10,
@@ -458,16 +465,32 @@ class TextDisplayPlugin(BasePlugin):
         old_scroll_enabled = self.scroll_enabled
         self.scroll_enabled = new_config.get('scroll', self.scroll_enabled)
         new_scroll_speed = new_config.get('scroll_speed', self.scroll_speed)
+        new_scroll_delay = new_config.get('scroll_delay', self.scroll_delay)
+        new_target_fps = new_config.get('target_fps', self.target_fps)
         self.scroll_loop = new_config.get('scroll_loop', self.scroll_loop)
         self.scroll_gap_width = new_config.get('scroll_gap_width', self.scroll_gap_width)
         
-        # Update ScrollHelper settings if scroll speed changed
-        if new_scroll_speed != self.scroll_speed and self.scroll_helper:
+        # Update ScrollHelper settings if scroll speed, delay, or target_fps changed
+        scroll_settings_changed = False
+        if new_scroll_speed != self.scroll_speed:
             self.scroll_speed = float(new_scroll_speed)
-            self.scroll_helper.set_scroll_speed(self.scroll_speed)
-            # Adjust FPS based on speed for smoother scrolling
-            target_fps = 120 if self.scroll_speed >= 10 else 240
+            scroll_settings_changed = True
+        if new_scroll_delay != self.scroll_delay:
+            self.scroll_delay = float(new_scroll_delay)
+            scroll_settings_changed = True
+        if new_target_fps != self.target_fps:
+            self.target_fps = float(new_target_fps)
+            scroll_settings_changed = True
+        
+        if scroll_settings_changed and self.scroll_helper:
+            # Recalculate pixels per second from frame-based settings
+            pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+            self.scroll_helper.set_scroll_speed(pixels_per_second)
+            self.scroll_helper.set_scroll_delay(self.scroll_delay)
+            # Clamp target FPS to valid range
+            target_fps = max(30.0, min(240.0, self.target_fps))
             self.scroll_helper.set_target_fps(target_fps)
+            self.logger.info(f"Scroll settings updated: {self.scroll_speed} px/frame, {self.scroll_delay}s delay = {pixels_per_second:.1f} px/s, target FPS: {target_fps}")
         
         # Reset scroll position if scroll was toggled
         if old_scroll_enabled != self.scroll_enabled:
@@ -503,11 +526,16 @@ class TextDisplayPlugin(BasePlugin):
     def get_info(self) -> Dict[str, Any]:
         """Return plugin info for web UI."""
         info = super().get_info()
+        # Calculate pixels per second for display
+        pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
         info.update({
             'text': self.text[:50] if len(self.text) > 50 else self.text,
             'text_width': self.text_width,
             'scroll_enabled': self.scroll_enabled,
-            'scroll_speed': self.scroll_speed,
+            'scroll_speed': self.scroll_speed,  # pixels per frame
+            'scroll_delay': self.scroll_delay,  # seconds per frame
+            'target_fps': self.target_fps,
+            'pixels_per_second': round(pixels_per_second, 1),  # calculated from frame-based settings
             'scroll_loop': self.scroll_loop,
             'font_path': self.font_path,
             'font_size': self.font_size
