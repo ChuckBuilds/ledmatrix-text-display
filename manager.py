@@ -203,6 +203,7 @@ class TextDisplayPlugin(BasePlugin):
     def _create_text_cache(self):
         """Pre-render the text onto an image for smooth scrolling using ScrollHelper."""
         if not self.text or self.text_width == 0:
+            self.logger.warning("Cannot create text cache: text is empty or text_width is 0")
             return
         
         try:
@@ -227,12 +228,26 @@ class TextDisplayPlugin(BasePlugin):
             # Draw text starting after the initial display_width padding
             draw.text((matrix_width, y_pos), self.text, font=self.font, fill=self.text_color)
             
+            # Ensure image is in RGB mode (required for numpy conversion)
+            if self.text_image_cache.mode != 'RGB':
+                self.text_image_cache = self.text_image_cache.convert('RGB')
+            
             # Set the scrolling image in ScrollHelper
             self.scroll_helper.set_scrolling_image(self.text_image_cache)
             
+            # Verify it was set correctly
+            if self.scroll_helper.cached_image is None:
+                self.logger.error("Failed to set scrolling image in ScrollHelper")
+            if self.scroll_helper.cached_array is None:
+                self.logger.error("ScrollHelper cached_array is None after set_scrolling_image")
+            
             self.logger.info(f"Created text cache: {cache_width}x{matrix_height}")
+            self.logger.debug(f"Text cache details: text_width={self.text_width}, matrix_width={matrix_width}, "
+                           f"scroll_gap_width={self.scroll_gap_width}, scroll_helper.total_scroll_width={self.scroll_helper.total_scroll_width}, "
+                           f"scroll_helper.cached_image={'set' if self.scroll_helper.cached_image else 'None'}, "
+                           f"scroll_helper.cached_array={'set' if self.scroll_helper.cached_array is not None else 'None'}")
         except Exception as e:
-            self.logger.error(f"Failed to create text cache: {e}")
+            self.logger.error(f"Failed to create text cache: {e}", exc_info=True)
             self.text_image_cache = None
     
     def update(self) -> None:
@@ -243,8 +258,16 @@ class TextDisplayPlugin(BasePlugin):
                 self.scroll_helper.reset_scroll()
             return
         
+        # Ensure cache is created before updating scroll position
+        if not self.text_image_cache:
+            self._create_text_cache()
+        
         # Use ScrollHelper to update scroll position
         if self.scroll_helper and self.text_image_cache:
+            # Verify scroll_helper has the image set
+            if self.scroll_helper.cached_image is None:
+                self.logger.warning("ScrollHelper cached_image is None, re-setting scrolling image")
+                self.scroll_helper.set_scrolling_image(self.text_image_cache)
             self.scroll_helper.update_scroll_position()
     
     def display(self, force_clear: bool = False) -> None:
@@ -267,6 +290,15 @@ class TextDisplayPlugin(BasePlugin):
                     self._create_text_cache()
                 
                 if self.text_image_cache and self.scroll_helper:
+                    # Verify scroll_helper has the image set
+                    if self.scroll_helper.cached_image is None:
+                        self.logger.warning("ScrollHelper cached_image is None in display(), re-setting scrolling image")
+                        self.scroll_helper.set_scrolling_image(self.text_image_cache)
+                    
+                    # Update scroll position (handles time-based scrolling automatically)
+                    # This ensures scroll position is updated every frame
+                    self.scroll_helper.update_scroll_position()
+                    
                     # Signal scrolling state to display manager
                     if hasattr(self.display_manager, 'set_scrolling_state'):
                         if not self.scroll_helper.is_scroll_complete():
@@ -278,10 +310,17 @@ class TextDisplayPlugin(BasePlugin):
                     visible_image = self.scroll_helper.get_visible_portion()
                     
                     if visible_image:
-                        # Update display with visible portion
-                        self.display_manager.image = visible_image.copy()
+                        # Ensure display_manager.image exists and is the right size
+                        if not hasattr(self.display_manager, 'image') or self.display_manager.image is None:
+                            self.display_manager.image = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
+                        
+                        # Update display with visible portion (use paste like odds-ticker)
+                        self.display_manager.image.paste(visible_image, (0, 0))
                         self.display_manager.update_display()
+                        self.logger.debug(f"Displayed visible portion: scroll_position={self.scroll_helper.scroll_position:.2f}, "
+                                        f"image_size={visible_image.size}")
                     else:
+                        self.logger.warning("ScrollHelper.get_visible_portion() returned None, using fallback")
                         # Fallback: direct draw
                         img = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
                         draw = ImageDraw.Draw(img)
@@ -289,7 +328,10 @@ class TextDisplayPlugin(BasePlugin):
                         text_height = bbox[3] - bbox[1]
                         y_pos = (matrix_height - text_height) // 2 - bbox[1]
                         draw.text((0, y_pos), self.text, font=self.font, fill=self.text_color)
-                        self.display_manager.image = img
+                        if not hasattr(self.display_manager, 'image') or self.display_manager.image is None:
+                            self.display_manager.image = img
+                        else:
+                            self.display_manager.image.paste(img, (0, 0))
                         self.display_manager.update_display()
                 else:
                     # Fallback: static text if cache creation failed
