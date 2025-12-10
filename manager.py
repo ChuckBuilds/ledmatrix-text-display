@@ -93,7 +93,16 @@ class TextDisplayPlugin(BasePlugin):
         target_fps = max(30.0, min(240.0, self.target_fps))
         self.scroll_helper.set_target_fps(target_fps)
         # Enable sub-pixel scrolling for smooth movement at any speed (prevents pixel skipping)
-        self.scroll_helper.set_sub_pixel_scrolling(True)
+        # Check if method exists for backward compatibility with older ScrollHelper versions
+        if hasattr(self.scroll_helper, 'set_sub_pixel_scrolling'):
+            self.scroll_helper.set_sub_pixel_scrolling(True)
+        else:
+            # Fallback: set the attribute directly if it exists
+            if hasattr(self.scroll_helper, 'sub_pixel_scrolling'):
+                self.scroll_helper.sub_pixel_scrolling = True
+                self.logger.debug("Sub-pixel scrolling enabled (using direct attribute access)")
+            else:
+                self.logger.debug("Sub-pixel scrolling not available in this ScrollHelper version")
         
         self.logger.info(f"Scroll settings: {self.scroll_speed} px/frame, {self.scroll_delay}s delay = {pixels_per_second:.1f} px/s, target FPS: {target_fps}")
         self.scroll_helper.set_dynamic_duration_settings(
