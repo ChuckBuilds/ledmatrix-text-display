@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 from src.plugin_system.base_plugin import BasePlugin
+from src.common.scroll_helper import ScrollHelper
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,27 @@ class TextDisplayPlugin(BasePlugin):
         # State
         self.font = self._load_font()
         self.text_width = 0
-        self.scroll_pos = 0.0
-        self.last_update_time = time.time()
         self.text_image_cache = None
         
         # Calculate text dimensions
         self._calculate_text_dimensions()
+        
+        # Initialize ScrollHelper for scrolling functionality
+        display_width = self.display_manager.matrix.width if hasattr(self.display_manager, 'matrix') else 128
+        display_height = self.display_manager.matrix.height if hasattr(self.display_manager, 'matrix') else 32
+        self.scroll_helper = ScrollHelper(display_width, display_height, logger=self.logger)
+        
+        # Configure ScrollHelper with plugin settings
+        # scroll_speed is pixels per second
+        self.scroll_helper.set_scroll_speed(self.scroll_speed)
+        self.scroll_helper.set_scroll_delay(0.001)  # Minimal delay for high FPS
+        self.scroll_helper.set_target_fps(120)  # Target 120 FPS for smooth scrolling
+        self.scroll_helper.set_dynamic_duration_settings(
+            enabled=True,
+            min_duration=10,
+            max_duration=300,
+            buffer=0.1
+        )
         
         # Register fonts
         self._register_fonts()
@@ -185,17 +201,20 @@ class TextDisplayPlugin(BasePlugin):
             self.text_width = len(self.text) * 8
     
     def _create_text_cache(self):
-        """Pre-render the text onto an image for smooth scrolling."""
+        """Pre-render the text onto an image for smooth scrolling using ScrollHelper."""
         if not self.text or self.text_width == 0:
             return
         
         try:
-            # Total width is text width plus gap
-            cache_width = self.text_width + self.scroll_gap_width
-            cache_height = self.display_manager.matrix.height
+            matrix_width = self.display_manager.matrix.width
+            matrix_height = self.display_manager.matrix.height
+            
+            # Total width is text width plus gap, plus display width for initial padding
+            # ScrollHelper expects the image to include display_width padding at the start
+            cache_width = matrix_width + self.text_width + self.scroll_gap_width
             
             # Create cache image
-            self.text_image_cache = Image.new('RGB', (cache_width, cache_height), self.bg_color)
+            self.text_image_cache = Image.new('RGB', (cache_width, matrix_height), self.bg_color)
             draw = ImageDraw.Draw(self.text_image_cache)
             
             # Calculate vertical centering
@@ -203,38 +222,34 @@ class TextDisplayPlugin(BasePlugin):
             temp_draw = ImageDraw.Draw(temp_img)
             bbox = temp_draw.textbbox((0, 0), self.text, font=self.font)
             text_height = bbox[3] - bbox[1]
-            y_pos = (cache_height - text_height) // 2 - bbox[1]
+            y_pos = (matrix_height - text_height) // 2 - bbox[1]
             
-            # Draw text
-            draw.text((0, y_pos), self.text, font=self.font, fill=self.text_color)
+            # Draw text starting after the initial display_width padding
+            draw.text((matrix_width, y_pos), self.text, font=self.font, fill=self.text_color)
             
-            self.logger.info(f"Created text cache: {cache_width}x{cache_height}")
+            # Set the scrolling image in ScrollHelper
+            self.scroll_helper.set_scrolling_image(self.text_image_cache)
+            
+            self.logger.info(f"Created text cache: {cache_width}x{matrix_height}")
         except Exception as e:
             self.logger.error(f"Failed to create text cache: {e}")
             self.text_image_cache = None
     
     def update(self) -> None:
-        """Update scroll position if scrolling is enabled."""
+        """Update scroll position if scrolling is enabled using ScrollHelper."""
         if not self.scroll_enabled or self.text_width <= self.display_manager.matrix.width:
-            self.scroll_pos = 0.0
+            # Reset scroll position if scrolling is disabled or text fits
+            if self.scroll_helper:
+                self.scroll_helper.reset_scroll()
             return
         
-        current_time = time.time()
-        delta_time = current_time - self.last_update_time
-        self.last_update_time = current_time
-        
-        # Update scroll position
-        scroll_delta = delta_time * self.scroll_speed
-        self.scroll_pos += scroll_delta
-        
-        # Reset when scrolled past end
-        total_width = self.text_width + self.scroll_gap_width
-        if self.scroll_pos >= total_width:
-            self.scroll_pos = self.scroll_pos % total_width
+        # Use ScrollHelper to update scroll position
+        if self.scroll_helper and self.text_image_cache:
+            self.scroll_helper.update_scroll_position()
     
     def display(self, force_clear: bool = False) -> None:
         """
-        Display the text on the LED matrix.
+        Display the text on the LED matrix using ScrollHelper.
         
         Args:
             force_clear: If True, clear display before rendering
@@ -246,54 +261,60 @@ class TextDisplayPlugin(BasePlugin):
             matrix_width = self.display_manager.matrix.width
             matrix_height = self.display_manager.matrix.height
             
-            # Create display image
-            img = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
-            draw = ImageDraw.Draw(img)
-            
             if self.scroll_enabled and self.text_width > matrix_width:
-                # Scrolling text
+                # Scrolling text - use ScrollHelper
                 if not self.text_image_cache:
                     self._create_text_cache()
                 
-                if self.text_image_cache:
-                    # Use cached image for scrolling
-                    scroll_int = int(self.scroll_pos)
-                    cache_width = self.text_image_cache.width
+                if self.text_image_cache and self.scroll_helper:
+                    # Signal scrolling state to display manager
+                    if hasattr(self.display_manager, 'set_scrolling_state'):
+                        if not self.scroll_helper.is_scroll_complete():
+                            self.display_manager.set_scrolling_state(True)
+                        else:
+                            self.display_manager.set_scrolling_state(False)
                     
-                    if scroll_int + matrix_width <= cache_width:
-                        # Simple crop
-                        segment = self.text_image_cache.crop((scroll_int, 0, scroll_int + matrix_width, matrix_height))
-                        img.paste(segment, (0, 0))
+                    # Get visible portion from ScrollHelper
+                    visible_image = self.scroll_helper.get_visible_portion()
+                    
+                    if visible_image:
+                        # Update display with visible portion
+                        self.display_manager.image = visible_image.copy()
+                        self.display_manager.update_display()
                     else:
-                        # Wrap-around
-                        width1 = cache_width - scroll_int
-                        if width1 > 0:
-                            segment1 = self.text_image_cache.crop((scroll_int, 0, cache_width, matrix_height))
-                            img.paste(segment1, (0, 0))
-                        
-                        remaining = matrix_width - width1
-                        if remaining > 0:
-                            segment2 = self.text_image_cache.crop((0, 0, remaining, matrix_height))
-                            img.paste(segment2, (width1, 0))
+                        # Fallback: direct draw
+                        img = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
+                        draw = ImageDraw.Draw(img)
+                        bbox = draw.textbbox((0, 0), self.text, font=self.font)
+                        text_height = bbox[3] - bbox[1]
+                        y_pos = (matrix_height - text_height) // 2 - bbox[1]
+                        draw.text((0, y_pos), self.text, font=self.font, fill=self.text_color)
+                        self.display_manager.image = img
+                        self.display_manager.update_display()
                 else:
-                    # Fallback: direct draw with offset
-                    x_pos = matrix_width - int(self.scroll_pos)
+                    # Fallback: static text if cache creation failed
+                    img = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
+                    draw = ImageDraw.Draw(img)
                     bbox = draw.textbbox((0, 0), self.text, font=self.font)
+                    text_width = bbox[2] - bbox[0]
                     text_height = bbox[3] - bbox[1]
+                    x_pos = (matrix_width - text_width) // 2
                     y_pos = (matrix_height - text_height) // 2 - bbox[1]
                     draw.text((x_pos, y_pos), self.text, font=self.font, fill=self.text_color)
+                    self.display_manager.image = img
+                    self.display_manager.update_display()
             else:
                 # Static text (centered)
+                img = Image.new('RGB', (matrix_width, matrix_height), self.bg_color)
+                draw = ImageDraw.Draw(img)
                 bbox = draw.textbbox((0, 0), self.text, font=self.font)
                 text_width = bbox[2] - bbox[0]
                 text_height = bbox[3] - bbox[1]
                 x_pos = (matrix_width - text_width) // 2
                 y_pos = (matrix_height - text_height) // 2 - bbox[1]
                 draw.text((x_pos, y_pos), self.text, font=self.font, fill=self.text_color)
-            
-            # Update display
-            self.display_manager.image = img.copy()
-            self.display_manager.update_display()
+                self.display_manager.image = img
+                self.display_manager.update_display()
             
         except Exception as e:
             self.logger.error(f"Error displaying text: {e}")
@@ -303,11 +324,18 @@ class TextDisplayPlugin(BasePlugin):
         self.text = text
         self._calculate_text_dimensions()
         self.text_image_cache = None
-        self.scroll_pos = 0.0
+        if self.scroll_helper:
+            self.scroll_helper.reset_scroll()
         self.logger.info(f"Text updated to: '{text[:30]}...'")
     
     def get_display_duration(self) -> float:
-        """Get display duration from config."""
+        """Get display duration from config or ScrollHelper's dynamic duration."""
+        # If scrolling is enabled and ScrollHelper has calculated a duration, use it
+        if self.scroll_enabled and self.scroll_helper and self.scroll_helper.total_scroll_width > 0:
+            dynamic_duration = self.scroll_helper.get_dynamic_duration()
+            if dynamic_duration > 0:
+                return float(dynamic_duration)
+        # Otherwise use config value or default
         return self.config.get('display_duration', 10.0)
     
     def validate_config(self) -> bool:
@@ -349,12 +377,18 @@ class TextDisplayPlugin(BasePlugin):
         # Update scroll settings
         old_scroll_enabled = self.scroll_enabled
         self.scroll_enabled = new_config.get('scroll', self.scroll_enabled)
-        self.scroll_speed = new_config.get('scroll_speed', self.scroll_speed)
+        new_scroll_speed = new_config.get('scroll_speed', self.scroll_speed)
         self.scroll_gap_width = new_config.get('scroll_gap_width', self.scroll_gap_width)
+        
+        # Update ScrollHelper settings if scroll speed changed
+        if new_scroll_speed != self.scroll_speed and self.scroll_helper:
+            self.scroll_speed = new_scroll_speed
+            self.scroll_helper.set_scroll_speed(self.scroll_speed)
         
         # Reset scroll position if scroll was toggled
         if old_scroll_enabled != self.scroll_enabled:
-            self.scroll_pos = 0.0
+            if self.scroll_helper:
+                self.scroll_helper.reset_scroll()
             self.text_image_cache = None  # Invalidate cache when scroll state changes
             self.logger.info(f"Scroll {'enabled' if self.scroll_enabled else 'disabled'}")
         
@@ -397,6 +431,8 @@ class TextDisplayPlugin(BasePlugin):
     
     def cleanup(self) -> None:
         """Cleanup resources."""
+        if self.scroll_helper:
+            self.scroll_helper.clear_cache()
         self.text_image_cache = None
         self.logger.info("Text display plugin cleaned up")
 
