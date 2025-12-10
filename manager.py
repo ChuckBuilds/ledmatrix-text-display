@@ -53,7 +53,8 @@ class TextDisplayPlugin(BasePlugin):
         self.font_path = config.get('font_path', 'assets/fonts/PressStart2P-Regular.ttf')
         self.font_size = config.get('font_size', 8)
         self.scroll_enabled = config.get('scroll', True)
-        self.scroll_speed = config.get('scroll_speed', 30)
+        self.scroll_speed = float(config.get('scroll_speed', 30))
+        self.scroll_loop = config.get('scroll_loop', True)  # Default to looping for backward compatibility
         self.scroll_gap_width = config.get('scroll_gap_width', 32)
         # Convert colors to integers to handle string values from JSON config
         try:
@@ -81,10 +82,13 @@ class TextDisplayPlugin(BasePlugin):
         self.scroll_helper = ScrollHelper(display_width, display_height, logger=self.logger)
         
         # Configure ScrollHelper with plugin settings
-        # scroll_speed is pixels per second
+        # scroll_speed is pixels per second (supports decimal values for fine control)
         self.scroll_helper.set_scroll_speed(self.scroll_speed)
         self.scroll_helper.set_scroll_delay(0.001)  # Minimal delay for high FPS
-        self.scroll_helper.set_target_fps(120)  # Target 120 FPS for smooth scrolling
+        # Use higher FPS for smoother scrolling, especially at lower speeds
+        # Higher FPS = more frequent position updates = smoother scrolling
+        target_fps = 120 if self.scroll_speed >= 10 else 240  # Even higher FPS for slow speeds
+        self.scroll_helper.set_target_fps(target_fps)
         self.scroll_helper.set_dynamic_duration_settings(
             enabled=True,
             min_duration=10,
@@ -268,6 +272,12 @@ class TextDisplayPlugin(BasePlugin):
             if self.scroll_helper.cached_image is None:
                 self.logger.warning("ScrollHelper cached_image is None, re-setting scrolling image")
                 self.scroll_helper.set_scrolling_image(self.text_image_cache)
+            
+            # In one-shot mode, don't update if scroll is complete
+            if not self.scroll_loop and self.scroll_helper.is_scroll_complete():
+                # One-shot mode and complete - don't update position
+                return
+            
             self.scroll_helper.update_scroll_position()
     
     def display(self, force_clear: bool = False) -> None:
@@ -297,13 +307,41 @@ class TextDisplayPlugin(BasePlugin):
                     
                     # Update scroll position (handles time-based scrolling automatically)
                     # This ensures scroll position is updated every frame
-                    self.scroll_helper.update_scroll_position()
+                    was_complete = self.scroll_helper.is_scroll_complete()
+                    
+                    # In one-shot mode, don't update if scroll is already complete
+                    if not self.scroll_loop and was_complete:
+                        # One-shot mode and already complete - don't update position
+                        is_now_complete = True
+                    else:
+                        # Update scroll position (will handle completion)
+                        self.scroll_helper.update_scroll_position()
+                        is_now_complete = self.scroll_helper.is_scroll_complete()
+                        
+                        # Handle scroll completion based on loop setting
+                        if is_now_complete:
+                            if self.scroll_loop:
+                                # Continuous looping mode - reset when complete
+                                self.scroll_helper.reset_scroll()
+                                if not was_complete:
+                                    # Just completed this frame
+                                    self.logger.debug("Scroll completed and reset for continuous loop")
+                                else:
+                                    # Was already complete (shouldn't happen often, but handle it)
+                                    self.logger.debug("Scroll reset for continuous loop (was already complete)")
+                            else:
+                                # One-shot mode - stop scrolling when complete
+                                # Scroll position is already clamped by ScrollHelper, so just stop updating
+                                if not was_complete:
+                                    self.logger.info("Scroll completed in one-shot mode - stopping")
                     
                     # Signal scrolling state to display manager
                     if hasattr(self.display_manager, 'set_scrolling_state'):
-                        if not self.scroll_helper.is_scroll_complete():
+                        # Only signal scrolling if not complete (or if looping and will reset)
+                        if not self.scroll_helper.is_scroll_complete() or (self.scroll_loop and self.scroll_helper.is_scroll_complete()):
                             self.display_manager.set_scrolling_state(True)
                         else:
+                            # One-shot mode and complete - stop scrolling
                             self.display_manager.set_scrolling_state(False)
                     
                     # Get visible portion from ScrollHelper
@@ -420,12 +458,16 @@ class TextDisplayPlugin(BasePlugin):
         old_scroll_enabled = self.scroll_enabled
         self.scroll_enabled = new_config.get('scroll', self.scroll_enabled)
         new_scroll_speed = new_config.get('scroll_speed', self.scroll_speed)
+        self.scroll_loop = new_config.get('scroll_loop', self.scroll_loop)
         self.scroll_gap_width = new_config.get('scroll_gap_width', self.scroll_gap_width)
         
         # Update ScrollHelper settings if scroll speed changed
         if new_scroll_speed != self.scroll_speed and self.scroll_helper:
-            self.scroll_speed = new_scroll_speed
+            self.scroll_speed = float(new_scroll_speed)
             self.scroll_helper.set_scroll_speed(self.scroll_speed)
+            # Adjust FPS based on speed for smoother scrolling
+            target_fps = 120 if self.scroll_speed >= 10 else 240
+            self.scroll_helper.set_target_fps(target_fps)
         
         # Reset scroll position if scroll was toggled
         if old_scroll_enabled != self.scroll_enabled:
@@ -466,6 +508,7 @@ class TextDisplayPlugin(BasePlugin):
             'text_width': self.text_width,
             'scroll_enabled': self.scroll_enabled,
             'scroll_speed': self.scroll_speed,
+            'scroll_loop': self.scroll_loop,
             'font_path': self.font_path,
             'font_size': self.font_size
         })

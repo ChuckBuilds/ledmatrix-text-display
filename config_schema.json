@@ -52,9 +52,14 @@
     "scroll_speed": {
       "type": "number",
       "default": 30,
-      "minimum": 1,
-      "maximum": 200,
-      "description": "Scroll speed in pixels per second. Higher values = faster scrolling."
+      "minimum": 0.1,
+      "maximum": 500,
+      "description": "Scroll speed in pixels per second. Higher values = faster scrolling. Supports decimal values for fine control (e.g., 15.5)."
+    },
+    "scroll_loop": {
+      "type": "boolean",
+      "default": true,
+      "description": "If true, text loops continuously. If false, scrolls once and stops (one-shot mode)."
     },
     "scroll_gap_width": {
       "type": "number",
