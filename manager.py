@@ -84,11 +84,21 @@ class TextDisplayPlugin(BasePlugin):
         self.scroll_helper = ScrollHelper(display_width, display_height, logger=self.logger)
         
         # Configure ScrollHelper with plugin settings
-        # Convert frame-based (pixels/frame + delay) to time-based (pixels/second) for ScrollHelper
-        # pixels_per_second = pixels_per_frame / seconds_per_frame
-        pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
-        self.scroll_helper.set_scroll_speed(pixels_per_second)
+        # Use frame-based scrolling for smoother visual movement on LED matrix
+        # This ignores time deltas and moves fixed pixels per step, throttled by scroll_delay
+        
+        # Check if method exists for backward compatibility
+        if hasattr(self.scroll_helper, 'set_frame_based_scrolling'):
+            self.scroll_helper.set_frame_based_scrolling(True)
+            # In frame-based mode, scroll_speed is pixels per frame
+            self.scroll_helper.set_scroll_speed(self.scroll_speed)
+        else:
+            # Fallback for older ScrollHelper: convert to pixels/second
+            pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+            self.scroll_helper.set_scroll_speed(pixels_per_second)
+            
         self.scroll_helper.set_scroll_delay(self.scroll_delay)
+        
         # Set target FPS from config (clamp to valid range)
         target_fps = max(30.0, min(240.0, self.target_fps))
         self.scroll_helper.set_target_fps(target_fps)
@@ -492,14 +502,20 @@ class TextDisplayPlugin(BasePlugin):
             scroll_settings_changed = True
         
         if scroll_settings_changed and self.scroll_helper:
-            # Recalculate pixels per second from frame-based settings
-            pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
-            self.scroll_helper.set_scroll_speed(pixels_per_second)
+            # Check if frame-based scrolling is supported
+            if hasattr(self.scroll_helper, 'set_frame_based_scrolling'):
+                # Frame-based mode: speed is pixels per frame
+                self.scroll_helper.set_scroll_speed(self.scroll_speed)
+            else:
+                # Fallback: calculate pixels per second
+                pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
+                self.scroll_helper.set_scroll_speed(pixels_per_second)
+                
             self.scroll_helper.set_scroll_delay(self.scroll_delay)
             # Clamp target FPS to valid range
             target_fps = max(30.0, min(240.0, self.target_fps))
             self.scroll_helper.set_target_fps(target_fps)
-            self.logger.info(f"Scroll settings updated: {self.scroll_speed} px/frame, {self.scroll_delay}s delay = {pixels_per_second:.1f} px/s, target FPS: {target_fps}")
+            self.logger.info(f"Scroll settings updated: speed={self.scroll_speed}, delay={self.scroll_delay}s, target FPS={target_fps}")
         
         # Reset scroll position if scroll was toggled
         if old_scroll_enabled != self.scroll_enabled:
