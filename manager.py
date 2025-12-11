@@ -16,6 +16,7 @@ API Version: 1.0.0
 
 import logging
 import os
+import time
 from typing import Dict, Any
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
@@ -86,6 +87,12 @@ class TextDisplayPlugin(BasePlugin):
         self.font = self._load_font()
         self.text_width = 0
         self.text_image_cache = None
+        
+        # Frame rate tracking for FPS logging
+        self.frame_count = 0
+        self.last_frame_time = None
+        self.last_fps_log_time = None
+        self.frame_times = []
         
         # Calculate text dimensions
         self._calculate_text_dimensions()
@@ -394,6 +401,10 @@ class TextDisplayPlugin(BasePlugin):
                         # Update display with visible portion (use paste like odds-ticker)
                         self.display_manager.image.paste(visible_image, (0, 0))
                         self.display_manager.update_display()
+                        
+                        # Log frame rate for scrolling text
+                        self._log_frame_rate()
+                        
                         self.logger.debug(f"Displayed visible portion: scroll_position={self.scroll_helper.scroll_position:.2f}, "
                                         f"image_size={visible_image.size}")
                     else:
@@ -437,6 +448,43 @@ class TextDisplayPlugin(BasePlugin):
             
         except Exception as e:
             self.logger.error(f"Error displaying text: {e}")
+    
+    def _log_frame_rate(self):
+        """Log frame rate statistics for scrolling text."""
+        if not self.scroll_enabled:
+            return
+        
+        current_time = time.time()
+        
+        # Initialize timing on first call
+        if self.last_frame_time is None:
+            self.last_frame_time = current_time
+            self.last_fps_log_time = current_time
+            return
+        
+        # Calculate instantaneous frame time
+        frame_time = current_time - self.last_frame_time
+        self.frame_times.append(frame_time)
+        
+        # Keep only last 100 frames for average
+        if len(self.frame_times) > 100:
+            self.frame_times.pop(0)
+        
+        # Log FPS every 5 seconds to avoid spam
+        if current_time - self.last_fps_log_time >= 5.0:
+            avg_frame_time = sum(self.frame_times) / len(self.frame_times) if self.frame_times else frame_time
+            avg_fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0
+            instant_fps = 1.0 / frame_time if frame_time > 0 else 0
+            
+            self.logger.info(
+                f"Text display FPS - Avg: {avg_fps:.1f}, Current: {instant_fps:.1f}, "
+                f"Frame time: {frame_time*1000:.2f}ms, Target: {self.target_fps:.0f} FPS"
+            )
+            self.last_fps_log_time = current_time
+            self.frame_count = 0
+        
+        self.last_frame_time = current_time
+        self.frame_count += 1
     
     def set_text(self, text: str):
         """Update the displayed text."""
