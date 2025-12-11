@@ -54,6 +54,8 @@ class TextDisplayPlugin(BasePlugin):
         self.font_path = config.get('font_path', 'assets/fonts/PressStart2P-Regular.ttf')
         self.font_size = config.get('font_size', 8)
         self.scroll_enabled = config.get('scroll', True)
+        # Signal to DisplayController that this plugin needs high-FPS treatment when scrolling
+        self.enable_scrolling = self.scroll_enabled
         # Frame-based scrolling: pixels per frame
         self.scroll_speed = float(config.get('scroll_speed', 1))  # pixels per frame (like stock/leaderboard)
         self.scroll_delay = float(config.get('scroll_delay', 0.01))  # seconds per frame (default 0.01 = 100 FPS)
