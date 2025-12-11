@@ -260,9 +260,10 @@ class TextDisplayPlugin(BasePlugin):
             matrix_width = self.display_manager.matrix.width
             matrix_height = self.display_manager.matrix.height
             
-            # Total width is text width plus gap, plus display width for initial padding
-            # ScrollHelper expects the image to include display_width padding at the start
-            cache_width = matrix_width + self.text_width + self.scroll_gap_width
+            # Total width: initial padding + text + final padding (so text scrolls completely off) + gap
+            # Structure: [display_width padding] [text] [display_width padding] [gap]
+            # This ensures text starts off-screen right and scrolls completely off-screen left
+            cache_width = matrix_width + self.text_width + matrix_width + self.scroll_gap_width
             
             # Create cache image
             self.text_image_cache = Image.new('RGB', (cache_width, matrix_height), self.bg_color)
@@ -291,9 +292,10 @@ class TextDisplayPlugin(BasePlugin):
             if self.scroll_helper.cached_array is None:
                 self.logger.error("ScrollHelper cached_array is None after set_scrolling_image")
             
-            self.logger.info(f"Created text cache: {cache_width}x{matrix_height}")
+            self.logger.info(f"Created text cache: {cache_width}x{matrix_height} (text: {self.text_width}px + {matrix_width}px end buffer + {self.scroll_gap_width}px gap)")
             self.logger.debug(f"Text cache details: text_width={self.text_width}, matrix_width={matrix_width}, "
-                           f"scroll_gap_width={self.scroll_gap_width}, scroll_helper.total_scroll_width={self.scroll_helper.total_scroll_width}, "
+                           f"end_buffer={matrix_width}, scroll_gap_width={self.scroll_gap_width}, "
+                           f"scroll_helper.total_scroll_width={self.scroll_helper.total_scroll_width}, "
                            f"scroll_helper.cached_image={'set' if self.scroll_helper.cached_image else 'None'}, "
                            f"scroll_helper.cached_array={'set' if self.scroll_helper.cached_array is not None else 'None'}")
         except Exception as e:
