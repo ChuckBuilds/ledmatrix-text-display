@@ -37,7 +37,9 @@ class TextDisplayPlugin(BasePlugin):
         font_path (str): Path to TTF or BDF font file
         font_size (int): Font size in pixels
         scroll (bool): Enable scrolling animation
-        scroll_speed (float): Scroll speed in pixels per second
+        scroll_speed (float): Scroll speed in pixels per frame (default: 1, range: 0.1-10)
+        scroll_delay (float): Delay in seconds per frame (default: 0.01, range: 0.001-0.1)
+        scroll_loop (bool): If true, text loops continuously (default: true)
         text_color (list): RGB text color
         background_color (list): RGB background color
     """
@@ -56,6 +58,14 @@ class TextDisplayPlugin(BasePlugin):
         self.scroll_speed = float(config.get('scroll_speed', 1))  # pixels per frame (like stock/leaderboard)
         self.scroll_delay = float(config.get('scroll_delay', 0.01))  # seconds per frame (default 0.01 = 100 FPS)
         self.target_fps = float(config.get('target_fps', 120))  # target FPS for smooth scrolling
+        
+        # Warn if scroll_speed seems too high (might be from old config when it was pixels/second)
+        if self.scroll_speed > 5:
+            self.logger.warning(
+                f"scroll_speed is {self.scroll_speed} pixels/frame - this is very high and will cause large jumps. "
+                f"Recommended range: 0.5-2 pixels/frame for smooth scrolling. "
+                f"If you had an old config with pixels/second, divide by ~100 (e.g., 30 px/s -> 0.3 px/frame)"
+            )
         self.scroll_loop = config.get('scroll_loop', True)  # Default to looping for backward compatibility
         self.scroll_gap_width = config.get('scroll_gap_width', 32)
         # Convert colors to integers to handle string values from JSON config
@@ -91,7 +101,15 @@ class TextDisplayPlugin(BasePlugin):
         if hasattr(self.scroll_helper, 'set_frame_based_scrolling'):
             self.scroll_helper.set_frame_based_scrolling(True)
             # In frame-based mode, scroll_speed is pixels per frame
+            # Log the value before setting to help debug config issues
+            self.logger.info(f"Config scroll_speed: {self.scroll_speed} pixels/frame, scroll_delay: {self.scroll_delay}s")
             self.scroll_helper.set_scroll_speed(self.scroll_speed)
+            # Log the actual value after clamping (in case it was adjusted)
+            if self.scroll_helper.scroll_speed != self.scroll_speed:
+                self.logger.warning(
+                    f"scroll_speed was clamped from {self.scroll_speed} to {self.scroll_helper.scroll_speed} pixels/frame "
+                    f"(max 5 px/frame for smooth scrolling)"
+                )
         else:
             # Fallback for older ScrollHelper: convert to pixels/second
             pixels_per_second = self.scroll_speed / self.scroll_delay if self.scroll_delay > 0 else self.scroll_speed * 100
