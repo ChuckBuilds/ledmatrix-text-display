@@ -16,11 +16,6 @@
       "maximum": 300,
       "description": "How long to display the text in seconds (for non-scrolling or one complete scroll cycle)"
     },
-    "live_priority": {
-      "type": "boolean",
-      "default": false,
-      "description": "Enable live priority takeover when plugin has live content"
-    },
     "update_interval": {
       "type": "integer",
       "default": 60,
@@ -90,7 +85,11 @@
       },
       "minItems": 3,
       "maxItems": 3,
-      "default": [255, 255, 255],
+      "default": [
+        255,
+        255,
+        255
+      ],
       "description": "RGB text color [R, G, B]"
     },
     "background_color": {
@@ -102,10 +101,17 @@
       },
       "minItems": 3,
       "maxItems": 3,
-      "default": [0, 0, 0],
+      "default": [
+        0,
+        0,
+        0
+      ],
       "description": "RGB background color [R, G, B]"
     }
   },
-  "required": ["enabled", "text"],
+  "required": [
+    "enabled",
+    "text"
+  ],
   "additionalProperties": false
 }
